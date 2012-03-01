@@ -82,15 +82,17 @@
 #include <Keypad.h>
 #include <ctype.h>
 
+const byte ROWS = 4; //four rows
+const byte COLS = 3; //three columns
 // Define the keymaps.  The blank spot (lower left) is the space character.
-char alphaKeys[4][3] = {
+char alphaKeys[ROWS][COLS] = {
     { 'a','d','g' },
     { 'j','m','p' },
     { 's','v','y' },
     { ' ','.','#' }
 };
 
-char numberKeys[4][3] = {
+char numberKeys[ROWS][COLS] = {
     { '1','2','3' },
     { '4','5','6' },
     { '7','8','9' },
@@ -98,34 +100,31 @@ char numberKeys[4][3] = {
 };
 
 boolean alpha = false;   // Start with the numeric keypad.
-
 char* keypadMap = (alpha == true) ? makeKeymap(alphaKeys) : makeKeymap(numberKeys);
 
-// Connect keypad ROW0, ROW1, ROW2 and ROW3 to these pins, eg. ROW0 = Arduino pin2.
-byte rowPins[] = { 9, 8, 7, 6 };
-
-// Connect keypad COL0, COL1 and COL2 to these pins, eg. COL0 = Arduino pin6.
-byte colPins[] = { 12, 11, 10 };
+byte rowPins[ROWS] = {5, 4, 3, 2}; 	//connect to the row pinouts of the keypad
+byte colPins[COLS] = {8, 7, 6}; 	//connect to the column pinouts of the keypad
 
 //create a new Keypad
 Keypad keypad = Keypad(keypadMap, rowPins, colPins, sizeof(rowPins), sizeof(colPins));
 
+unsigned long startTime;
 const byte ledPin = 13;	                                                 // Use the LED on pin 13.
 
 void setup() {
     Serial.begin(9600);
-    digitalWrite(ledPin, HIGH);                                                // Turns the LED on.
+    pinMode(ledPin, OUTPUT);
+    digitalWrite(ledPin, LOW);                                                // Turns the LED on.
     keypad.addEventListener(keypadEvent);                                      // Add an event listener.
     keypad.setHoldTime(500);                                                   // Default is 1000mS
-    keypad.setDebounceTime(250);                                               // Default is 50mS
 }
 
 void loop() {
     char key = keypad.getKey();
 
-    if (alpha) {                      // Flash the LED if we are using the letter keymap.
+    if (alpha && millis()-startTime>100) {           // Flash the LED if we are using the letter keymap.
         digitalWrite(ledPin,!digitalRead(ledPin));
-        delay(100);
+		startTime = millis();
     }
 }
 
@@ -165,6 +164,7 @@ void keypadEvent(KeypadEvent key) {
             if (alpha == true)  {            // We are currently using a keymap with letters
                 keypad.begin(*numberKeys);   // and want to change to numbers.
                 alpha = false;
+                digitalWrite(ledPin, LOW);
             }
             else  {                          // Or, we are currently using a keymap with numbers
                 keypad.begin(*alphaKeys);    // and want to change to letters.

@@ -1,4 +1,4 @@
-Keypad	KEYWORD1
+Keypad_I2C	KEYWORD1
 KeypadEvent	KEYWORD1
 
 begin	KEYWORD2

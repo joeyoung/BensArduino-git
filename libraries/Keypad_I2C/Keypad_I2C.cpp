@@ -1,4 +1,6 @@
 /*
+   Keypad_I2C.cpp - modification of Keypad library to use I2C I/O
+   started: Feb 26/12 - G. D. Young
 ||
 || @file Keypad.h
 || @version 2.0
@@ -30,10 +32,10 @@
 ||
 */
 
-#include <Keypad.h>
+#include <Keypad_I2C.h>
 
 // <<constructor>> Allows custom keymap, pin configuration, and keypad sizes.
-Keypad::Keypad(char *userKeymap, byte *row, byte *col, byte numRows, byte numCols) {
+Keypad_I2C::Keypad_I2C(char *userKeymap, byte *row, byte *col, byte numRows, byte numCols, byte addr ) {
     rowPins = row;
     columnPins = col;
     size.rows = numRows;
@@ -48,21 +50,23 @@ Keypad::Keypad(char *userKeymap, byte *row, byte *col, byte numRows, byte numCol
     transitionTo(IDLE);
     stateChanged = false;
 
-    initializePins();
+	i2caddr = addr;
+
+//    initializePins(  ); // can't do this here - no Wire setup yet
 }
 
 // New in 2.0 this function lets the end user test for any changes in state
 // before deciding if any variables, etc. need to be updated in their code.
-boolean Keypad::keyStateChanged() {
+boolean Keypad_I2C::keyStateChanged() {
     return stateChanged;
 }
 
 // Let the user define a keymap - assume the same row/column count as defined in constructor
-void Keypad::begin( char *userKeymap) {
+void Keypad_I2C::begin( char *userKeymap) {
     keymap = userKeymap;
 }
 
-char Keypad::getKey() {
+char Keypad_I2C::getKey() {
 	// Return the new key value if a keypress was detected. By testing for
 	// keyStateChanged() we don't return a keypress more than once.
     if( getKeyState()==PRESSED && keyStateChanged() )
@@ -71,7 +75,7 @@ char Keypad::getKey() {
 	return NO_KEY;	// Otherwise just return the default key value:
 }
 
-char Keypad::waitForKey() {
+char Keypad_I2C::waitForKey() {
 	char waitKey = NO_KEY;
 	while( (waitKey = getKey()) == NO_KEY );	// Do nothing. Waiting for keypress.
 	return waitKey;
@@ -80,7 +84,7 @@ char Keypad::waitForKey() {
 // Private
 // Scan the keypad and report whether or not a key (or any key) has been pressed.
 // 2011-12-23 - Removed from getKeyState() for readability and ease of maintenance.
-boolean Keypad::scanKeys() {
+boolean Keypad_I2C::scanKeys() {
 	static unsigned int allKeys=0;
 	byte curKey=0;
 	boolean anyKey;
@@ -88,15 +92,15 @@ boolean Keypad::scanKeys() {
 	// Assume that some other device is sharing the data pins used by the
 	// keypad. If that is the case then the pins will need to be re-intialized
 	// each time before they are used.
-	initializePins();
+	initializePins(  ); // for I2C version, sets all pins HIGH
 
 	// I rewrote this method to provide a status change (anyKey OPEN/CLOSED) to the
 	// getKeyState() function which handles debouncing. Now we can scan the keypad
 	// without having to worry about huge debounce time delays.
 	for( int c=0; c<size.columns; c++) {
-		digitalWrite(columnPins[c], LOW);
+		I2CxWrite(columnPins[c], LOW);
 		for( int r=0; r<size.rows; r++) {
-			curKey = digitalRead(rowPins[r]);
+			curKey = I2CxRead(rowPins[r]);
 			allKeys += curKey;
 			if(curKey==0) currentKey = keymap[c+(r*size.columns)];
 
@@ -108,7 +112,7 @@ boolean Keypad::scanKeys() {
 					anyKey = CLOSED;
 			}
 		}
-		digitalWrite(columnPins[c], HIGH);
+		I2CxWrite(columnPins[c], HIGH);
 	}
 	allKeys = 0;
 	return anyKey;		// Status tells if keys are OPEN or CLOSED.
@@ -119,7 +123,7 @@ boolean Keypad::scanKeys() {
 // to return the IDLE state and was too tightly integrated with the key scan
 // to make simple changes without breaking it completely. But more importantly
 // only one key can ever be evaluated at one point in time.
-KeyState Keypad::getKeyState() {
+KeyState Keypad_I2C::getKeyState() {
 	static unsigned long startTime;
     static unsigned long Timer;
 	static boolean buttons;
@@ -147,7 +151,8 @@ KeyState Keypad::getKeyState() {
 		}
 		break;
 	case PRESSED:
-		// Waiting for a key hold...
+
+		// Waiting for a key hold.
 		if ( (millis()-Timer)>holdTime ) {
 			transitionTo(HOLD);      // Move to next state.
 			Timer = millis();    // Reset debounce timer.
@@ -172,23 +177,23 @@ KeyState Keypad::getKeyState() {
     return state;  			// Let the world know which state we're in.
 }
 
-KeyState Keypad::getState() {
+KeyState Keypad_I2C::getState() {
 	return state;
 }
 
-void Keypad::setDebounceTime(unsigned int debounce) {
+void Keypad_I2C::setDebounceTime(unsigned int debounce) {
     debounceTime = debounce;
 }
 
-void Keypad::setHoldTime(unsigned int hold) {
+void Keypad_I2C::setHoldTime(unsigned int hold) {
     holdTime = hold;
 }
 
-void Keypad::addEventListener(void (*listener)(char)){
+void Keypad_I2C::addEventListener(void (*listener)(char)){
 	keypadEventListener = listener;
 }
 
-void Keypad::transitionTo(KeyState nextState) {
+void Keypad_I2C::transitionTo(KeyState nextState) {
     state = nextState;
     stateChanged = true;
 	if (keypadEventListener!=NULL){
@@ -196,21 +201,49 @@ void Keypad::transitionTo(KeyState nextState) {
 	}
 }
 
-void Keypad::initializePins() {
+void Keypad_I2C::initializePins(  ) {
     //configure column pin modes and states
     for (byte C=0; C<size.columns; C++) {
-        pinMode(columnPins[C],OUTPUT);
-        digitalWrite(columnPins[C],LOW);
+//        pinMode(columnPins[C],OUTPUT);
+        I2CxWrite(columnPins[C],HIGH);
     }
     //configure row pin modes and states
     for (byte R=0; R<size.rows; R++) {
-        pinMode(rowPins[R],INPUT);
-		digitalWrite(rowPins[R],HIGH);	// Enable the internal 20K pullup resistors for each row pin.
+//        pinMode(rowPins[R],INPUT);
+//		digitalWrite(rowPins[R],HIGH);	// Enable the internal 20K pullup resistors for each row pin.
+		I2CxWrite( rowPins[R], HIGH );
     }
+
 }
+
+void Keypad_I2C::I2CxWrite( byte pin, byte lvl ) {
+	static byte pinstate;
+	byte mask = 1<<pin;
+	if( lvl == HIGH ) {
+		pinstate |= mask;
+	} else {
+		pinstate &= ~mask;
+	}
+	Wire.beginTransmission((int)i2caddr);
+	Wire.send( pinstate );
+	Wire.endTransmission();
+} // I2CxWrite( )
+
+byte Keypad_I2C::I2CxRead( byte pin ) {
+	byte mask = 0x1<<pin;
+	Wire.requestFrom((int)i2caddr, 1);
+	byte pinval = Wire.receive( );
+	pinval &= mask;
+	if( pinval == mask ) {
+		return 1;
+	} else {
+		return 0;
+	}
+} // I2CxRead( )
 
 /*
 || @changelog
+|| | 2012-02-27 - Joe Young - using I2C i/o--I2CxWrite(), I2CxRead() instead of digitalWrite,Read
 || | 2011-12-29 - Mark Stanley : Added waitForKey()
 || | 2011-12-23 - Mark Stanley : Rewrote state machine (Previously failed to set the IDLE state).
 || | 2011-12-23 - Mark Stanley : Significant speed improvements and removed state machine from getKey().

@@ -15,7 +15,7 @@ char keys[ROWS][COLS] = {
   {'1','2','3'},
   {'4','5','6'},
   {'7','8','9'},
-  {'#','0','*'}
+  {'*','0','#'}
 };
 byte rowPins[ROWS] = {5, 4, 3, 2}; //connect to the row pinouts of the keypad
 byte colPins[COLS] = {8, 7, 6}; //connect to the column pinouts of the keypad
@@ -29,7 +29,7 @@ void setup(){
 void loop(){
   char key = keypad.getKey();
   
-  if (key != NO_KEY){
+  if (key){
     Serial.println(key);
   }
 }

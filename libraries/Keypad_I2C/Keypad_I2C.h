@@ -1,4 +1,6 @@
 /*
+   Keypad_I2C.h - modification of Keypad library to use I2C I/O
+   started: Feb 26/12 - G. D. Young
 ||
 || @file Keypad.h
 || @version 2.0
@@ -30,8 +32,8 @@
 ||
 */
 
-#ifndef KEYPAD_H
-#define KEYPAD_H
+#ifndef KEYPAD_I2C_H
+#define KEYPAD_I2C_H
 
 // Arduino versioning.
 #if defined(ARDUINO) && ARDUINO >= 100
@@ -39,6 +41,10 @@
 #else
 #include "WProgram.h"
 #endif
+
+#include <Wire.h>       // replacing digitalRead and digitalWrite
+// must be in sketch??
+
 
 #define OFF LOW
 #define ON HIGH
@@ -62,9 +68,9 @@ typedef struct {
 const char NO_KEY = '\0';
 #define KEY_RELEASED NO_KEY
 
-class Keypad {
+class Keypad_I2C {
 public:
-	Keypad(char *userKeymap, byte *row, byte *col, byte numRows, byte numCols);
+	Keypad_I2C( char *userKeymap, byte *row, byte *col, byte numRows, byte numCols, byte i2caddr );
 
 	void begin(char *userKeymap);
 	char getKey();
@@ -78,13 +84,14 @@ public:
 
 private:
 	void transitionTo(KeyState);
-	void initializePins();
+	void initializePins(  );
 
 	char *keymap;
     byte *rowPins;
     byte *columnPins;
 	KeypadSize size;
-	KeyState state;
+	KeyState state;    // I2C i/o functions to mimic digitalWrite, digitalRead
+
 	char currentKey;
 	unsigned int debounceTime;
 	unsigned int holdTime;
@@ -93,16 +100,23 @@ private:
 	// New methods - 2011-12-23
 	boolean scanKeys();
 	KeyState getKeyState();
+    // I2C i/o functions to mimic digitalWrite, digitalRead
+    void I2CxWrite( byte, byte );
+	byte I2CxRead( byte );
 
 	// New members - 2011-12-23
 	boolean buttons;
 	boolean stateChanged;
+    // I2C device address
+    byte i2caddr;
+
 };
 
 #endif
 
 /*
 || @changelog
+|| | 2012-02-27 - Joe Young - using I2C i/o--I2CxWrite(), I2CxRead() instead of digitalWrite,Read
 || | 2.0 2011-12-29 - Mark Stanley     : Added waitForKey().
 || | 2.0 2011-12-23 - Mark Stanley     : Added the public function keyStateChanged().
 || | 2.0 2011-12-23 - Mark Stanley     : Added the private function scanKeys().
