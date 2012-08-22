@@ -1,0 +1,5 @@
+// arduinoPins.h
+
+void pin_mode(byte pinNum, byte mode) { pinMode(pinNum, mode); }
+void pin_write(byte pinNum, boolean level) { digitalWrite(pinNum, level); }
+int  pin_read(byte pinNum) { return digitalRead(pinNum); }
