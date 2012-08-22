@@ -33,70 +33,83 @@
 #ifndef KEYPAD_H
 #define KEYPAD_H
 
+#include "utility/Key.h"
+
 // Arduino versioning.
 #if defined(ARDUINO) && ARDUINO >= 100
-#include "Arduino.h"	// for digitalRead, digitalWrite, etc
+#include "Arduino.h"
 #else
 #include "WProgram.h"
 #endif
 
-#define OFF LOW
-#define ON HIGH
+// See http://code.google.com/p/arduino/issues/detail?id=246
+#if defined(ARDUINO) && ARDUINO < 101
+#define INPUT_PULLUP INPUT
+#endif
 
-#define CLOSED LOW
-#define OPEN HIGH
+#define OPEN LOW
+#define CLOSED HIGH
 
-#define makeKeymap(x) ((char*)x)
+#define LIST_MAX 10		// Max number of keys on the active list.
 
 typedef char KeypadEvent;
-
-typedef enum {IDLE, PRESSED, HOLD, RELEASED} KeyState;  // KeyState was KeypadState
+typedef unsigned int uint;
+typedef unsigned long ulong;
 
 // Made changes according to this post http://arduino.cc/forum/index.php?topic=58337.0
-// by Nick Gammon. Thanks for the input Nick. :)  It actually saved 78 bytes for me.
+// by Nick Gammon. Thanks for the input Nick. It actually saved 78 bytes for me. :)
 typedef struct {
     byte rows;
     byte columns;
 } KeypadSize;
 
-const char NO_KEY = '\0';
 #define KEY_RELEASED NO_KEY
+#define MAPSIZE 10
+#define makeKeymap(x) ((char*)x)
 
-class Keypad {
+
+//class Keypad : public Key, public HAL_obj {
+class Keypad : public Key {
 public:
+
 	Keypad(char *userKeymap, byte *row, byte *col, byte numRows, byte numCols);
 
-	void begin(char *userKeymap);
+	virtual void pin_mode(byte pinNum, byte mode) { pinMode(pinNum, mode); }
+	virtual void pin_write(byte pinNum, boolean level) { digitalWrite(pinNum, level); }
+	virtual int  pin_read(byte pinNum) { return digitalRead(pinNum); }
+
+	uint bitMap[MAPSIZE];	// 10 row x 16 column array of bits.
+	Key key[LIST_MAX];
+	unsigned long holdTimer;
+
 	char getKey();
+	void getKeys();
 	KeyState getState();
-	void setDebounceTime(unsigned int);
-	void setHoldTime(unsigned int);
+	void begin(char *userKeymap);
+	bool isPressed(char keyChar);
+	void setDebounceTime(uint);
+	void setHoldTime(uint);
 	void addEventListener(void (*listener)(char));
-	// New methods
+	int findKeyInList(char keyChar);
 	char waitForKey();
-	boolean keyStateChanged();
+	bool keyStateChanged();
+	byte numKeys();
 
 private:
-	void transitionTo(KeyState);
-	void initializePins();
-
+	unsigned long startTime;
 	char *keymap;
     byte *rowPins;
     byte *columnPins;
-	KeypadSize size;
-	KeyState state;
-	char currentKey;
-	unsigned int debounceTime;
-	unsigned int holdTime;
+	KeypadSize sizeKpd;
+	uint debounceTime;
+	uint holdTime;
+
+	bool scanKeys();
+	void updateList();
+	void setKeyState(byte n, boolean button);
+	void transitionTo(byte n, KeyState nextState);
+	void initializePins();
 	void (*keypadEventListener)(char);
-
-	// New methods - 2011-12-23
-	boolean scanKeys();
-	KeyState getKeyState();
-
-	// New members - 2011-12-23
-	boolean buttons;
-	boolean stateChanged;
 };
 
 #endif

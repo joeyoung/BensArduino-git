@@ -1,7 +1,7 @@
 /*
 ||
-|| @file Keypad.h
-|| @version 2.0
+|| @file Keypad.cpp
+|| @version 2.1
 || @author Mark Stanley, Alexander Brevig
 || @contact mstanley@technologist.com, alexanderbrevig@gmail.com
 ||
@@ -29,158 +29,184 @@
 || #
 ||
 */
-
 #include <Keypad.h>
 
 // <<constructor>> Allows custom keymap, pin configuration, and keypad sizes.
 Keypad::Keypad(char *userKeymap, byte *row, byte *col, byte numRows, byte numCols) {
     rowPins = row;
     columnPins = col;
-    size.rows = numRows;
-    size.columns = numCols;
+    sizeKpd.rows = numRows;
+    sizeKpd.columns = numCols;
 
     begin(userKeymap);
 
-    setDebounceTime(2);
+    setDebounceTime(10);
     setHoldTime(500);
 	keypadEventListener = 0;
 
-    transitionTo(IDLE);
-    stateChanged = false;
-
     initializePins();
-}
 
-// New in 2.0 this function lets the end user test for any changes in state
-// before deciding if any variables, etc. need to be updated in their code.
-boolean Keypad::keyStateChanged() {
-    return stateChanged;
+	startTime = 0;
 }
 
 // Let the user define a keymap - assume the same row/column count as defined in constructor
-void Keypad::begin( char *userKeymap) {
+void Keypad::begin(char *userKeymap) {
     keymap = userKeymap;
 }
 
+// Returns a single key only. Retained for backwards compatibility.
 char Keypad::getKey() {
-	// Return the new key value if a keypress was detected. By testing for
-	// keyStateChanged() we don't return a keypress more than once.
-    if( getKeyState()==PRESSED && keyStateChanged() )
-        return currentKey;
-
-	return NO_KEY;	// Otherwise just return the default key value:
+	if (scanKeys() && (key[0].kstate==PRESSED) && key[0].stateChanged)
+		return key[0].kchar;
+	return NO_KEY;
 }
 
+void Keypad::getKeys() {
+	scanKeys();
+}
+
+// Private
+// Scan the keypad.  Rerturn whether a key has been pressed or not.
+bool Keypad::scanKeys() {
+//	static unsigned long startTime;	// is now a member of the class to support multiple keypad objects.
+	boolean anyKey=false;
+
+	// Scan keypad once every XX mS. This makes the loop() count
+	// go from about 4,000 loops per second to about 40,000.
+	if ( (millis()-startTime)>debounceTime ) {
+
+		// When sharing row pins with other hardware they may need to be re-intialized.
+		for (byte r=0; r<sizeKpd.rows; r++) {
+			pin_mode(rowPins[r],INPUT_PULLUP);
+			pin_write(rowPins[r],HIGH);	// Enable the internal 20K pullup resistors. (Arduino<101)
+		}
+
+		// Scan the entire keypad/keyboard and provide a key pressed status to
+		// setKeyState().  Also, determine which keys are being pressed.
+		for (int c=0; c<sizeKpd.columns; c++) {
+			pin_mode(columnPins[c],OUTPUT);
+			pin_write(columnPins[c], LOW);	// Begin column pulse output.
+			for (int r=0; r<sizeKpd.rows; r++) {
+				bitWrite(bitMap[r], c, !pin_read(rowPins[r]));
+				if (bitRead(bitMap[r], c) == 1)
+					anyKey = true;
+			}
+			// Set pin to high impedance input. Effectively ends column pulse.
+			pin_write(columnPins[c],HIGH);
+			pin_mode(columnPins[c],INPUT);
+		}
+		updateList();	// Manage the Active-Key list. Adding/Removing active keys.
+
+		// Reset debounceTime delay.
+		startTime = millis();
+	}
+	return anyKey;	// Report if any keys are active.
+}
+
+// Manage the key list. Any keys already on the list stay in their current slot
+// and empty slots get filled with new keys.
+void Keypad::updateList() {
+
+	// Delete Idle keys
+	for (int i=0; i<LIST_MAX; i++) {
+		if (key[i].kstate==IDLE)
+			key[i].kchar = NO_KEY;
+	}
+
+	// Fill the empty slots in key[] list with new CLOSED keys.
+	for (int r=0; r<sizeKpd.rows; r++) {
+		for (int c=0; c<sizeKpd.columns; c++) {
+			boolean button = bitRead(bitMap[r],c);
+			char keyChar = keymap[r * sizeKpd.columns + c];
+			int idx = findKeyInList (keyChar);				// -1 = not on list, else returns key index
+			// Update any key that was found on the list.
+			if (idx>=0)
+				setKeyState (idx, button);
+			// Add a key to the list when the button is CLOSED.
+			if ((idx==-1) && button) {
+				// Check the whole list for an empty key slot and put it there.
+				for (int i=0; i<LIST_MAX; i++) {
+					if (key[i].kchar==NO_KEY) {
+						key[i].kchar = keyChar;
+						key[i].kstate = IDLE;
+						// All keys not on the list are considered IDLE. Using setKeyState
+						// on new key will transition the key to the PRESSED state as expected.
+						setKeyState (i, button);
+						break;	// only fill the first empty slot.
+					}
+				}
+			}
+		}
+	}
+}
+
+// Private
+void Keypad::setKeyState(byte idx, boolean button) {
+	// Clear stateChanged.
+	key[idx].stateChanged = false;
+
+	switch (key[idx].kstate) {
+		case IDLE:		// Waiting for a keypress.
+			if (button==CLOSED) {
+				transitionTo (idx, PRESSED);
+				holdTimer = millis(); }		// Get ready for next HOLD state.
+			break;
+		case PRESSED:
+			if ((millis()-holdTimer)>holdTime)	// Waiting for a key HOLD...
+				transitionTo (idx, HOLD);
+			else if (button==OPEN)				// or for a key to be RELEASED.
+				transitionTo (idx, RELEASED);
+			break;
+		case HOLD:
+			// Waiting for a key to be RELEASED.
+			if (button==OPEN)
+				transitionTo (idx, RELEASED);
+			break;
+		case RELEASED:
+			transitionTo (idx, IDLE);
+			break;
+	}
+}
+
+// New in 2.1
+bool Keypad::isPressed(char keyChar) {
+	for (int i=0; i<LIST_MAX; i++) {
+		if ( (key[i].kchar == keyChar) && (key[i].kstate == PRESSED) )
+			return true;
+	}
+	return false;	// Not pressed.
+}
+
+// New in 2.0
 char Keypad::waitForKey() {
 	char waitKey = NO_KEY;
-	while( (waitKey = getKey()) == NO_KEY );	// Do nothing. Waiting for keypress.
+	while( (waitKey = getKey()) == NO_KEY );	// Block everything while waiting for a keypress.
 	return waitKey;
 }
 
-// Private
-// Scan the keypad and report whether or not a key (or any key) has been pressed.
-// 2011-12-23 - Removed from getKeyState() for readability and ease of maintenance.
-boolean Keypad::scanKeys() {
-	static unsigned int allKeys=0;
-	byte curKey=0;
-	boolean anyKey;
-
-	// Assume that some other device is sharing the data pins used by the
-	// keypad. If that is the case then the pins will need to be re-intialized
-	// each time before they are used.
-	initializePins();
-
-	// I rewrote this method to provide a status change (anyKey OPEN/CLOSED) to the
-	// getKeyState() function which handles debouncing. Now we can scan the keypad
-	// without having to worry about huge debounce time delays.
-	for( int c=0; c<size.columns; c++) {
-		digitalWrite(columnPins[c], LOW);
-		for( int r=0; r<size.rows; r++) {
-			curKey = digitalRead(rowPins[r]);
-			allKeys += curKey;
-			if(curKey==0) currentKey = keymap[c+(r*size.columns)];
-
-			// All keys have been scanned. Set 'anyKey' value for use by getKeyState().
-			if( r==(size.rows-1) && c==(size.columns-1) ) {
-				if( allKeys==(size.rows*size.columns) )
-					anyKey = OPEN;
-				else
-					anyKey = CLOSED;
-			}
-		}
-		digitalWrite(columnPins[c], HIGH);
-	}
-	allKeys = 0;
-	return anyKey;		// Status tells if keys are OPEN or CLOSED.
-}
-
-// Private
-// I rewrote the state machine and renamed it. The old getKey() method failed
-// to return the IDLE state and was too tightly integrated with the key scan
-// to make simple changes without breaking it completely. But more importantly
-// only one key can ever be evaluated at one point in time.
-KeyState Keypad::getKeyState() {
-	static unsigned long startTime;
-    static unsigned long Timer;
-	static boolean buttons;
-    stateChanged = false;
-
-	// Scan keypad once every 10 mS. This makes the loop() count go from about
-	// 4,000 loops per second to about 40,000 loops per second. A 10 fold increase
-	// in program speed. It is also responsible for the major portion of time used
-	// for debouncing the keys. Most humans can't press a key any faster than 20 mS
-	// so the end user won't notice any lag at 10 mS.
-	if ( (millis()-startTime)>10 )
-		startTime = millis();
-	else
-		return state;
-
-	// Find out whether or not a key was pressed and if so which one it was.
-	buttons = scanKeys();
-
-	switch (state) {
-	case IDLE:
-		// The only thing to do while idling is to look for a debounced keypress.
-		if( buttons==CLOSED && (millis()-Timer)>debounceTime ) {
-			transitionTo(PRESSED);
-			Timer = millis();
-		}
-		break;
-	case PRESSED:
-		// Waiting for a key hold...
-		if ( (millis()-Timer)>holdTime ) {
-			transitionTo(HOLD);      // Move to next state.
-			Timer = millis();    // Reset debounce timer.
-		}
-		// Or for the key to be release.
-		else if ( buttons==OPEN && (millis()-Timer)>debounceTime ) {
-			transitionTo(RELEASED);
-			Timer = millis();
-		}
-		break;
-	case HOLD:
-		// Waiting for the key to be released.
-		if ( (buttons==OPEN) && (millis()-Timer)>debounceTime ) {
-			transitionTo(RELEASED);
-			Timer = millis();
-		}
-		break;
-	case RELEASED:
-		transitionTo(IDLE);
-		break;
-	}
-    return state;  			// Let the world know which state we're in.
-}
-
 KeyState Keypad::getState() {
-	return state;
+	return key[0].kstate;
 }
 
-void Keypad::setDebounceTime(unsigned int debounce) {
-    debounceTime = debounce;
+// The end user can test for any changes in state before deciding
+// if any variables, etc. needs to be updated in their code.
+// Useful for keypads/keyboards returning a single key only.
+bool Keypad::keyStateChanged() {
+	return key[0].stateChanged;
 }
 
-void Keypad::setHoldTime(unsigned int hold) {
+// The number of keys on the key list, key[LIST_MAX], equals the number
+// of bytes in the key list divided by the number of bytes in a key.
+byte Keypad::numKeys() {
+	return sizeof(key)/sizeof(Key);
+}
+
+// Minimum debounceTime is 10 mS. Any lower *will* slow down the loop().
+void Keypad::setDebounceTime(uint debounce) {
+	debounce<1 ? debounceTime=1 : debounceTime=debounce;
+}
+
+void Keypad::setHoldTime(uint hold) {
     holdTime = hold;
 }
 
@@ -188,26 +214,35 @@ void Keypad::addEventListener(void (*listener)(char)){
 	keypadEventListener = listener;
 }
 
-void Keypad::transitionTo(KeyState nextState) {
-    state = nextState;
-    stateChanged = true;
-	if (keypadEventListener!=NULL){
-		keypadEventListener(currentKey);
-	}
+void Keypad::transitionTo(byte n, KeyState nextState) {
+	key[n].kstate = nextState;
+	key[n].stateChanged = true;
+
+	if (keypadEventListener!=NULL)
+		keypadEventListener(key[0].kchar);
 }
 
 void Keypad::initializePins() {
-    //configure column pin modes and states
-    for (byte C=0; C<size.columns; C++) {
-        pinMode(columnPins[C],OUTPUT);
-        digitalWrite(columnPins[C],LOW);
-    }
-    //configure row pin modes and states
-    for (byte R=0; R<size.rows; R++) {
-        pinMode(rowPins[R],INPUT);
-		digitalWrite(rowPins[R],HIGH);	// Enable the internal 20K pullup resistors for each row pin.
+    // Configure column pin modes and states. Row pins get configured
+    // in scanKeys(). See explanation there.
+    // See http://arduino.cc/forum/index.php/topic,95027.0.html for an explanation
+    // of why changing the column pins to INPUTs prevents inter-column shorts.
+    for (byte C=0; C<sizeKpd.columns; C++) {
+        pin_mode(columnPins[C],INPUT);
+        pin_write(columnPins[C],HIGH);
     }
 }
+
+// Search for a key in the list of active keys.
+// Returns -1 if not found or the index into the list of active keys.
+int Keypad::findKeyInList (char keyChar) {
+	for (int i=0; i<LIST_MAX; i++) {
+		if (key[i].kchar == keyChar)
+			return i;
+	}
+	return -1;	// No matching key in list.
+}
+
 
 /*
 || @changelog
