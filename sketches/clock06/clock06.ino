@@ -6,6 +6,8 @@
 //          Dec 23/11 - add year, month setting, display
 //          Dec 27,28/11 - add alarm, freq out control
 //          Dec 29/11 - add sound o/p
+//          Aug 23/12 - New Keypad libraries, Keypad entry to setting,
+//                      arduino 1.0, version 0.6
 //
 // Stand-alone version to develop display formatting. Will eventually
 // use a real-time clock/calendar IC to retain values over power down.
@@ -17,21 +19,25 @@
 
 #include <ctype.h>
 
-#include <i2ckeypad.h>
+#include <Keypad.h>
+#include <Keypad_I2C.h>
+#include <Wire.h>
 
 #define LEFTKPD_ADR 0x21
-#define KPDROWS 4
-#define KPDCOLS 4
+#define ROWS 4
+#define COLS 4
 
-char keymap0[4][5] =
-{
-  "123+",
-  "456-",
-  "789*",
-  "c0.="
+char keymap0[ROWS][COLS] = {
+  {'1','2','3','+'},
+  {'4','5','6','-'},
+  {'7','8','9','*'},
+  {'c','0','.','='}
 };
 
-i2ckeypad kpd( &keymap0[0][0], LEFTKPD_ADR, KPDROWS, KPDCOLS );
+byte rowPins0[ROWS] = {0, 1, 2, 3}; //connect to the row pin bit# of the keypad
+byte colPins0[COLS] = {4, 5, 6, 7}; //connect to the column pin bit #
+
+Keypad_I2C kpd( makeKeymap(keymap0), rowPins0, colPins0, ROWS, COLS, LEFTKPD_ADR );
 
 
 #define LCDCOLS 16
@@ -74,12 +80,12 @@ byte state[2];
 byte rawtime[16];
 
 // setting variables
-const byte setpin = 2;
-const byte alarmsetpin = 3;
+//const byte setpin = 2;
+//const byte alarmsetpin = 3;
 const byte alarmoutpin = 11;
 byte curpos = 0;
-byte setmode;
-byte alarmsetmode;
+byte setmode = HIGH;
+byte alarmsetmode = HIGH;
 byte setting = false;
 byte alarmsetting = false;
 byte setkey;
@@ -91,12 +97,12 @@ byte first;           // flag to control top line printing
 
 byte getRtcStatus( byte *st ) {
   Wire.beginTransmission( RTC_ADR ); // start write to slave
-  Wire.send( (uint8_t) 0x00 );    // set adr pointer to status 1
+  Wire.write( (uint8_t) 0x00 );    // set adr pointer to status 1
   Wire.endTransmission();
   errcode = Wire.requestFrom( RTC_ADR, 2 ); // request control_status_1 and 2
   if( errcode == 2 ) {
-    st[0] = Wire.receive( );
-    st[1] = Wire.receive( );
+    st[0] = Wire.read( );
+    st[1] = Wire.read( );
     return 0;
   } else {
     return RTC_ST_RD_ERR;
@@ -106,20 +112,20 @@ byte getRtcStatus( byte *st ) {
 byte clrRtcStatus( uint8_t fl ) {
   state[1] = state[1] & (~fl);    // reflect new state immediately
   Wire.beginTransmission( RTC_ADR ); // start write to slave
-  Wire.send( (uint8_t) 0x01 );    // set adr pointer to status 2
-  Wire.send( (uint8_t) state[1] );
+  Wire.write( (uint8_t) 0x01 );    // set adr pointer to status 2
+  Wire.write( (uint8_t) state[1] );
   Wire.endTransmission();
   return 0;
 } // clrRtcStatus
 
 byte getRtcTime( byte *rt ) {
   Wire.beginTransmission( RTC_ADR ); // start write to slave
-  Wire.send( (uint8_t) 0x02 );    // set adr pointer to VL_seconds
+  Wire.write( (uint8_t) 0x02 );    // set adr pointer to VL_seconds
   Wire.endTransmission();
   errcode = Wire.requestFrom( RTC_ADR, 11 ); // request control_status_1 and 2
   if( errcode == 11 ) {
     for( byte ix=0; ix<11; ix++ ) {
-      *(rt+ix) = Wire.receive( );
+      *(rt+ix) = Wire.read( );
     } // for received bytes
     return 0;
   } else {
@@ -129,22 +135,23 @@ byte getRtcTime( byte *rt ) {
 
 void setRtcClkOut( byte ctrl ) {
   Wire.beginTransmission( RTC_ADR );
-  Wire.send( (uint8_t) 0x0d );  // adr pointer to contro reg
-  Wire.send( (uint8_t) ctrl );
+  Wire.write( (uint8_t) 0x0d );  // adr pointer to contro reg
+  Wire.write( (uint8_t) ctrl );
   Wire.endTransmission( );
 } // setRtcClkOut
 
 void setup(){
-  Wire.begin( );
+//  Wire.begin( );
+  kpd.begin( );
 //  Serial.begin( 9600 );         //debug
   lcd2.init();
   lcd2.begin( LCDCOLS, LCDROWS );
   lcd2.clear( );
   lcd2.setCursor( 0, 0 );
-  lcd2.print( "Clk 0.5 " );
+  lcd2.print( "Clk 0.6 " );
   lcd2.setCursor( 0, 1 );
   lcd2.setBacklight( HIGH );
-  kpd.init( 0 );
+//  kpd.init( 0 );
   errcode = getRtcStatus( state );
   if( errcode ) {
     lcd2.print( "clk st err " );
@@ -186,12 +193,15 @@ void setup(){
 //  setRtcClkOut( (byte)0x83 );  // set clk out to 1 Hz
   setRtcClkOut( (byte)0 );     // set clk out OFF
   msecounter = millis( );
-  pinMode( setpin, INPUT );
-  pinMode( alarmsetpin, INPUT );
-  digitalWrite( setpin, HIGH );
-  digitalWrite( alarmsetpin, HIGH );  // turn on pullups
+//  pinMode( setpin, INPUT );
+//  pinMode( alarmsetpin, INPUT );
+//  digitalWrite( setpin, HIGH );
+//  digitalWrite( alarmsetpin, HIGH );  // turn on pullups
   pinMode( alarmoutpin, OUTPUT );
   first = true;
+
+  kpd.addEventListener( startSetMode );
+  kpd.setHoldTime( 600 );
 
 // debug
 //  sprintf( str, "%.2x %.2x %.2x ", state[1], rawtime[7], rawtime[8] );
@@ -228,7 +238,7 @@ void loop( ) {
     } // if week
 
     if( first ) {
-      sprintf( datestr, "Clk 0.5 %.3s %.2d%.2d",
+      sprintf( datestr, "Clk 0.6 %.3s %.2d%.2d",
                    months[month-1], century, year );
       lcd2.noBlink( );
       lcd2.setCursor( 0, 0 );
@@ -243,10 +253,15 @@ void loop( ) {
 
   } // if second has elapsed
   
-  setmode = digitalRead( setpin );
+//  setmode = digitalRead( setpin );
+// use keypad HOLD state to enter setmode
+  setkey = kpd.getKey( );
   if( setmode == LOW ) {
     sprintf( datestr, "%.2d.%.2d.%.2d %.1d %.2d %.2d", 
                    hours, minutes, seconds, dow, dom, month );
+    kbdBeep( NOTE_D4, 100 );
+    delay( 150 );
+    kbdBeep( NOTE_A4, 100 );
     curpos = 0;
   } // if setmode
   while( setmode == LOW ) {
@@ -258,10 +273,11 @@ void loop( ) {
       lcd2.setCursor( curpos-3, 0 );
     } // if setting bottom line
     lcd2.blink( );
-    setkey = kpd.get_key( 0 );
+    setkey = kpd.getKey( );
     while( setkey == NO_KEY && setmode == LOW ) {
-      setmode = digitalRead( setpin );
-      setkey = kpd.get_key( 0 );
+//      setmode = digitalRead( setpin );
+      setkey = kpd.getKey( );
+      if( setkey == '+' ) setmode = HIGH;  // exit when set key again
     } // wait for key
     setting = true;
     if( setmode == LOW ) {
@@ -276,10 +292,15 @@ void loop( ) {
     } // only update if still in setmode
   } // while setmode
 
-  alarmsetmode = digitalRead( alarmsetpin );
+// alarmsetmode = digitalRead( alarmsetpin );
+// use keypad HOLD state to enter setmode
+  setkey = kpd.getKey( );
   if( alarmsetmode == LOW ) {
     lcd2.setCursor( 0, 0 );
     lcd2.print( "ALM Set" );
+    kbdBeep( NOTE_D4, 100 );
+    delay( 150 );
+    kbdBeep( NOTE_A4, 100 );
     curpos = 0;
     sprintf( datestr, "mm.hh dm d      " );
   } // if alarmsetmode
@@ -289,10 +310,11 @@ void loop( ) {
     lcd2.print( datestr );
     lcd2.setCursor( curpos, 1 );
     lcd2.blink( );
-    setkey = kpd.get_key( 0 );
+    setkey = kpd.getKey( );
     while( setkey == NO_KEY && alarmsetmode == LOW ) {
-      alarmsetmode = digitalRead( alarmsetpin );
-      setkey = kpd.get_key( 0 );
+//      alarmsetmode = digitalRead( alarmsetpin );
+      setkey = kpd.getKey( );
+      if( setkey == '-' ) alarmsetmode = HIGH; // exit alrmsetmode on C key
     } // wait for key
     digitalWrite( alarmoutpin, LOW );
     alarmsetting = true;
@@ -346,22 +368,27 @@ void loop( ) {
       rawtime[6] |= inputstr[18]&0x0f;
     } // if setting whole shebang
     Wire.beginTransmission( RTC_ADR ); // setup to write to clock
-    Wire.send( 0x00 );            // adress pointer <- 0
-    Wire.send( 0x20 );            // ctrl 1, STOP bit
-    Wire.send( 0x00 );            // ctrl 2, disable ints, alarms
-    for( byte ix=0; ix<7; ix++ ) Wire.send( rawtime[ix] );
+    Wire.write( 0x00 );            // adress pointer <- 0
+    Wire.write( 0x20 );            // ctrl 1, STOP bit
+    Wire.write( 0x00 );            // ctrl 2, disable ints, alarms
+    for( byte ix=0; ix<7; ix++ ) Wire.write( rawtime[ix] );
     Wire.endTransmission( );           // STOP, set all clock regs
     Wire.beginTransmission( RTC_ADR );
-    Wire.send( 0x00 );
-    Wire.send( 0x00 );
+    Wire.write( 0x00 );
+    Wire.write( 0x00 );
     Wire.endTransmission( );           // restart the counters
 //    setRtcClkOut( (byte)0x83 );  // set clk out to 1 Hz
     setting = false;
     first = true;                 // arm for calendar display
     curpos = 0;
     msecounter = millis( );
+    kbdBeep( NOTE_A5, 100 );      // happy exit
   } // if setting entry correct
-  
+    else if(setting) {
+      kbdBeep( NOTE_A3, 150 );       // not good entry
+      setting = false;
+  } // else if setting entry was invalid
+ 
   
   if( alarmsetting ) {
     inputstr[2] = '\0';
@@ -377,7 +404,10 @@ void loop( ) {
       // no setting
       lcd2.setCursor( 0, 0 );
       lcd2.print( "NOT Set" );
-    } else {
+      kbdBeep( NOTE_A3, 150 );       // not good entry
+      alarmsetting = false;
+   } else {
+      kbdBeep( NOTE_A5, 100 );      // happy with entry
       if( curpos >= 2 ) {
         rawtime[7] = (inputstr[0]&0x07)<<4;   // minute alarm
         rawtime[7] |= inputstr[1]&0x0f;
@@ -397,8 +427,8 @@ void loop( ) {
     } // if reasonable number entries
 
     Wire.beginTransmission( RTC_ADR ); // setup to write to clock
-    Wire.send( 0x09 );            // adress pointer <- 9 alarm regs
-    for( byte ix=7; ix<11; ix++ ) Wire.send( rawtime[ix] );
+    Wire.write( 0x09 );            // adress pointer <- 9 alarm regs
+    for( byte ix=7; ix<11; ix++ ) Wire.write( rawtime[ix] );
     Wire.endTransmission( );      // set all alarm regs
     alarmsetting = false;
     curpos = 0;
@@ -408,6 +438,32 @@ void loop( ) {
 //  Serial.print( str );
 
   } // if alarmsetting
-  
+
   
 } // loop
+
+void startSetMode( KeypadEvent setkey ) {
+  
+  switch( kpd.getState( ) ){
+  case PRESSED:
+ //     if( setkey == '=' && calmode ) exitkey = true;
+      break;
+  case HOLD:
+      if( setkey == '+' ) {
+        setmode = LOW;
+      } // if setting key held
+      if( setkey == '-' ) {
+        alarmsetmode = LOW;
+      } // if alarm setting key held
+//      if( setkey == '*' ) {
+//        scalesetmode = LOW;
+//      } // if set scale key held
+//      if( setkey == '=' ) {
+//        calmode = true;
+//      } // if cal key held
+      break;  
+  case RELEASED:
+      break;
+  } // switch on keypad state
+  
+} // startSetMode( )
