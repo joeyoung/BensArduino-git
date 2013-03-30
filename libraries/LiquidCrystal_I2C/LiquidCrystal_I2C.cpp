@@ -1,8 +1,13 @@
 #include "LiquidCrystal_I2C.h"
 #include <inttypes.h>
-#include "WProgram.h" 
 #include "Wire.h"
 
+// Arduino versioning.
+#if defined(ARDUINO) && ARDUINO >= 100
+#include "Arduino.h"	// for digitalRead, digitalWrite, etc
+#else
+#include "WProgram.h"
+#endif
 
 
 // When the display powers up, it is configured as follows:
@@ -215,8 +220,10 @@ inline void LiquidCrystal_I2C::command(uint8_t value) {
 	send(value, 0);
 }
 
-inline void LiquidCrystal_I2C::write(uint8_t value) {
+//inline void LiquidCrystal_I2C::write(uint8_t value) {
+inline size_t LiquidCrystal_I2C::write(uint8_t value) {
 	send(value, Rs);
+	return( 1 );
 }
 
 
@@ -238,7 +245,8 @@ void LiquidCrystal_I2C::write4bits(uint8_t value) {
 
 void LiquidCrystal_I2C::expanderWrite(uint8_t _data){                                        
 	Wire.beginTransmission(_Addr);
-	Wire.send((int)(_data) | _backlightval);
+//	Wire.send((int)(_data) | _backlightval);
+	Wire.write((int)(_data) | _backlightval);
 	Wire.endTransmission();   
 }
 

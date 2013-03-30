@@ -1,15 +1,15 @@
 /*
 ||
 || @file Keypad.cpp
-|| @version 2.1
+|| @version 3.1
 || @author Mark Stanley, Alexander Brevig
 || @contact mstanley@technologist.com, alexanderbrevig@gmail.com
 ||
 || @description
 || | This library provides a simple interface for using matrix
-|| | keypads. It supports the use of multiple keypads with the
-|| | same or different sets of keys.  It also supports user
-|| | selectable pins and definable keymaps.
+|| | keypads. It supports multiple keypresses while maintaining
+|| | backwards compatibility with the old single key library.
+|| | It also supports user selectable pins and definable keymaps.
 || #
 ||
 || @license
@@ -44,7 +44,7 @@ Keypad::Keypad(char *userKeymap, byte *row, byte *col, byte numRows, byte numCol
     setHoldTime(500);
 	keypadEventListener = 0;
 
-    initializePins();
+//    initializePins();
 
 	startTime = 0;
 }
@@ -56,97 +56,99 @@ void Keypad::begin(char *userKeymap) {
 
 // Returns a single key only. Retained for backwards compatibility.
 char Keypad::getKey() {
-	if (scanKeys() && (key[0].kstate==PRESSED) && key[0].stateChanged)
+	if (getKeys() && key[0].stateChanged && (key[0].kstate==PRESSED))
 		return key[0].kchar;
+
 	return NO_KEY;
 }
 
-void Keypad::getKeys() {
-	scanKeys();
-}
+// Populate the key list.
+bool Keypad::getKeys() {
+	bool keyActivity = false;
 
-// Private
-// Scan the keypad.  Rerturn whether a key has been pressed or not.
-bool Keypad::scanKeys() {
-//	static unsigned long startTime;	// is now a member of the class to support multiple keypad objects.
-	boolean anyKey=false;
-
-	// Scan keypad once every XX mS. This makes the loop() count
-	// go from about 4,000 loops per second to about 40,000.
+	// Limit how often the keypad is scanned. This makes the loop() run 10 times as fast.
 	if ( (millis()-startTime)>debounceTime ) {
-
-		// When sharing row pins with other hardware they may need to be re-intialized.
-		for (byte r=0; r<sizeKpd.rows; r++) {
-			pin_mode(rowPins[r],INPUT_PULLUP);
-			pin_write(rowPins[r],HIGH);	// Enable the internal 20K pullup resistors. (Arduino<101)
-		}
-
-		// Scan the entire keypad/keyboard and provide a key pressed status to
-		// setKeyState().  Also, determine which keys are being pressed.
-		for (int c=0; c<sizeKpd.columns; c++) {
-			pin_mode(columnPins[c],OUTPUT);
-			pin_write(columnPins[c], LOW);	// Begin column pulse output.
-			for (int r=0; r<sizeKpd.rows; r++) {
-				bitWrite(bitMap[r], c, !pin_read(rowPins[r]));
-				if (bitRead(bitMap[r], c) == 1)
-					anyKey = true;
-			}
-			// Set pin to high impedance input. Effectively ends column pulse.
-			pin_write(columnPins[c],HIGH);
-			pin_mode(columnPins[c],INPUT);
-		}
-		updateList();	// Manage the Active-Key list. Adding/Removing active keys.
-
-		// Reset debounceTime delay.
+		scanKeys();
+		keyActivity = updateList();
 		startTime = millis();
 	}
-	return anyKey;	// Report if any keys are active.
+
+	return keyActivity;
 }
 
-// Manage the key list. Any keys already on the list stay in their current slot
-// and empty slots get filled with new keys.
-void Keypad::updateList() {
-
-	// Delete Idle keys
-	for (int i=0; i<LIST_MAX; i++) {
-		if (key[i].kstate==IDLE)
-			key[i].kchar = NO_KEY;
+// Private : Hardware scan
+void Keypad::scanKeys() {
+	// Re-intialize the pins every time for sharing with other hardware.
+	for (byte r=0; r<sizeKpd.rows; r++) {
+		pin_mode(rowPins[r],INPUT_PULLUP);
 	}
 
-	// Fill the empty slots in key[] list with new CLOSED keys.
-	for (int r=0; r<sizeKpd.rows; r++) {
-		for (int c=0; c<sizeKpd.columns; c++) {
+	// bitMap stores ALL the keys that are being pressed.
+	for (byte c=0; c<sizeKpd.columns; c++) {
+		pin_mode(columnPins[c],OUTPUT);
+		pin_write(columnPins[c], LOW);	// Begin column pulse output.
+		for (byte r=0; r<sizeKpd.rows; r++) {
+			bitWrite(bitMap[r], c, !pin_read(rowPins[r]));  // keypress is active low so invert to high.
+		}
+		// Set pin to high impedance input. Effectively ends column pulse.
+		pin_write(columnPins[c],HIGH);
+		pin_mode(columnPins[c],INPUT);
+	}
+}
+
+// Manage the list without rearranging the keys. Returns true if any keys on the list changed state.
+bool Keypad::updateList() {
+
+	bool anyActivity = false;
+
+	// Delete IDLE keys
+	for (byte i=0; i<LIST_MAX; i++) {
+		if (key[i].kstate==IDLE) {
+			key[i].kchar = NO_KEY;
+			key[i].kcode = -1;
+			key[i].stateChanged = false;
+		}
+	}
+
+	// Add new keys to empty slots in the key list.
+	for (byte r=0; r<sizeKpd.rows; r++) {
+		for (byte c=0; c<sizeKpd.columns; c++) {
 			boolean button = bitRead(bitMap[r],c);
 			char keyChar = keymap[r * sizeKpd.columns + c];
-			int idx = findKeyInList (keyChar);				// -1 = not on list, else returns key index
-			// Update any key that was found on the list.
-			if (idx>=0)
-				setKeyState (idx, button);
-			// Add a key to the list when the button is CLOSED.
-			if ((idx==-1) && button) {
-				// Check the whole list for an empty key slot and put it there.
-				for (int i=0; i<LIST_MAX; i++) {
-					if (key[i].kchar==NO_KEY) {
+			int keyCode = r * sizeKpd.columns + c;
+			int idx = findInList (keyCode);
+			// Key was found on the list so set its next state.
+			if (idx > -1) nextKeyState(idx, button);
+			// Key is not on the list so add it.
+			if ((idx == -1) && button) {
+				for (byte i=0; i<LIST_MAX; i++) {
+					if (key[i].kchar==NO_KEY) {		// Find an empty slot or don't add key to list.
 						key[i].kchar = keyChar;
-						key[i].kstate = IDLE;
-						// All keys not on the list are considered IDLE. Using setKeyState
-						// on new key will transition the key to the PRESSED state as expected.
-						setKeyState (i, button);
-						break;	// only fill the first empty slot.
+						key[i].kcode = keyCode;
+						key[i].kstate = IDLE;		// Keys NOT on the list have an initial state of IDLE.
+						nextKeyState (i, button);
+						break;	// Don't fill all the empty slots with the same key.
 					}
 				}
 			}
 		}
 	}
+
+	// Report if the user changed the state of any key.
+	for (byte i=0; i<LIST_MAX; i++) {
+		if (key[i].stateChanged) anyActivity = true;
+	}
+
+	return anyActivity;
 }
 
 // Private
-void Keypad::setKeyState(byte idx, boolean button) {
-	// Clear stateChanged.
+// This function is a state machine but is also used for debouncing the keys.
+void Keypad::nextKeyState(byte idx, boolean button) {
 	key[idx].stateChanged = false;
 
 	switch (key[idx].kstate) {
-		case IDLE:		// Waiting for a keypress.
+		case IDLE:
 			if (button==CLOSED) {
 				transitionTo (idx, PRESSED);
 				holdTimer = millis(); }		// Get ready for next HOLD state.
@@ -158,7 +160,6 @@ void Keypad::setKeyState(byte idx, boolean button) {
 				transitionTo (idx, RELEASED);
 			break;
 		case HOLD:
-			// Waiting for a key to be RELEASED.
 			if (button==OPEN)
 				transitionTo (idx, RELEASED);
 			break;
@@ -170,11 +171,35 @@ void Keypad::setKeyState(byte idx, boolean button) {
 
 // New in 2.1
 bool Keypad::isPressed(char keyChar) {
-	for (int i=0; i<LIST_MAX; i++) {
-		if ( (key[i].kchar == keyChar) && (key[i].kstate == PRESSED) )
-			return true;
+	for (byte i=0; i<LIST_MAX; i++) {
+		if ( key[i].kchar == keyChar ) {
+			if ( (key[i].kstate == PRESSED) && key[i].stateChanged )
+				return true;
+		}
 	}
 	return false;	// Not pressed.
+}
+
+// Search for a key (by character) in the list of active keys.
+// Returns -1 if not found or the index into the list of active keys.
+int Keypad::findInList (char keyChar) {
+	for (byte i=0; i<LIST_MAX; i++) {
+		if (key[i].kchar == keyChar) {
+			return i;
+		}
+	}
+	return -1;
+}
+
+// Search for a key (by code) in the list of active keys.
+// Returns -1 if not found or the index into the list of active keys.
+int Keypad::findInList (int keyCode) {
+	for (byte i=0; i<LIST_MAX; i++) {
+		if (key[i].kcode == keyCode) {
+			return i;
+		}
+	}
+	return -1;
 }
 
 // New in 2.0
@@ -184,19 +209,19 @@ char Keypad::waitForKey() {
 	return waitKey;
 }
 
+// Backwards compatibility function.
 KeyState Keypad::getState() {
 	return key[0].kstate;
 }
 
 // The end user can test for any changes in state before deciding
 // if any variables, etc. needs to be updated in their code.
-// Useful for keypads/keyboards returning a single key only.
 bool Keypad::keyStateChanged() {
 	return key[0].stateChanged;
 }
 
 // The number of keys on the key list, key[LIST_MAX], equals the number
-// of bytes in the key list divided by the number of bytes in a key.
+// of bytes in the key list divided by the number of bytes in a Key object.
 byte Keypad::numKeys() {
 	return sizeof(key)/sizeof(Key);
 }
@@ -222,43 +247,30 @@ void Keypad::transitionTo(byte n, KeyState nextState) {
 		keypadEventListener(key[0].kchar);
 }
 
-void Keypad::initializePins() {
-    // Configure column pin modes and states. Row pins get configured
-    // in scanKeys(). See explanation there.
-    // See http://arduino.cc/forum/index.php/topic,95027.0.html for an explanation
-    // of why changing the column pins to INPUTs prevents inter-column shorts.
-    for (byte C=0; C<sizeKpd.columns; C++) {
-        pin_mode(columnPins[C],INPUT);
-        pin_write(columnPins[C],HIGH);
-    }
-}
-
-// Search for a key in the list of active keys.
-// Returns -1 if not found or the index into the list of active keys.
-int Keypad::findKeyInList (char keyChar) {
-	for (int i=0; i<LIST_MAX; i++) {
-		if (key[i].kchar == keyChar)
-			return i;
-	}
-	return -1;	// No matching key in list.
-}
-
-
 /*
 || @changelog
-|| | 2011-12-29 - Mark Stanley : Added waitForKey()
-|| | 2011-12-23 - Mark Stanley : Rewrote state machine (Previously failed to set the IDLE state).
-|| | 2011-12-23 - Mark Stanley : Significant speed improvements and removed state machine from getKey().
-|| | 2011-11-29 - Tom Putzeys : Use internal pull-up, no  more column diodes needed, and consumes less power
-|| | 2009-07-08 - Alexander Brevig : Library does not use 2d arrays
-|| | 2009-06-15 - Alexander Brevig : Added transitionTo
-|| | 2009-06-15 - Alexander Brevig : Added getState()
-|| | 2009-06-13 - Mark Stanley : Fixed bug in getKey() that returns the wrong key if debounceTime is too short.
-|| | 2009-06-13 - Mark Stanley : Minor bug fix:  Added 'currentKey = NO_KEY' to constructors.
-|| | 2009-05-19 - Alexander Brevig : Added setHoldTime()
-|| | 2009-05-15 - Alexander Brevig : Changed begin() amd getKey(), this Library should be operational.
-|| | 2009-05-09 - Alexander Brevig : Changed getKey()
-|| | 2009-04-28 - Alexander Brevig : Modified API, and made variables private
-|| | 2007-XX-XX - Mark Stanley : Initial Release
+|| | 3.1 2013-01-15 - Mark Stanley     : Fixed missing RELEASED & IDLE status when using a single key.
+|| | 3.0 2012-07-12 - Mark Stanley     : Made library multi-keypress by default. (Backwards compatible)
+|| | 3.0 2012-07-12 - Mark Stanley     : Modified pin functions to support Keypad_I2C
+|| | 3.0 2012-07-12 - Stanley & Young  : Removed static variables. Fix for multiple keypad objects.
+|| | 3.0 2012-07-12 - Mark Stanley     : Fixed bug that caused shorted pins when pressing multiple keys.
+|| | 2.0 2011-12-29 - Mark Stanley     : Added waitForKey().
+|| | 2.0 2011-12-23 - Mark Stanley     : Added the public function keyStateChanged().
+|| | 2.0 2011-12-23 - Mark Stanley     : Added the private function scanKeys().
+|| | 2.0 2011-12-23 - Mark Stanley     : Moved the Finite State Machine into the function getKeyState().
+|| | 2.0 2011-12-23 - Mark Stanley     : Removed the member variable lastUdate. Not needed after rewrite.
+|| | 1.8 2011-11-21 - Mark Stanley     : Added decision logic to compile WProgram.h or Arduino.h
+|| | 1.8 2009-07-08 - Alexander Brevig : No longer uses arrays
+|| | 1.7 2009-06-18 - Alexander Brevig : Every time a state changes the keypadEventListener will trigger, if set.
+|| | 1.7 2009-06-18 - Alexander Brevig : Added setDebounceTime. setHoldTime specifies the amount of
+|| |                                          microseconds before a HOLD state triggers
+|| | 1.7 2009-06-18 - Alexander Brevig : Added transitionTo
+|| | 1.6 2009-06-15 - Alexander Brevig : Added getState() and state variable
+|| | 1.5 2009-05-19 - Alexander Brevig : Added setHoldTime()
+|| | 1.4 2009-05-15 - Alexander Brevig : Added addEventListener
+|| | 1.3 2009-05-12 - Alexander Brevig : Added lastUdate, in order to do simple debouncing
+|| | 1.2 2009-05-09 - Alexander Brevig : Changed getKey()
+|| | 1.1 2009-04-28 - Alexander Brevig : Modified API, and made variables private
+|| | 1.0 2007-XX-XX - Mark Stanley : Initial Release
 || #
 */

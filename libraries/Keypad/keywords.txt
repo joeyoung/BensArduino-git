@@ -1,49 +1,38 @@
-###########################################
-# Syntax Coloring Map For Keypad
-###########################################
-
-###########################################
-# Datatypes (KEYWORD1)
-###########################################
-
+# Keypad Library data types
+KeyState	KEYWORD1
 Keypad	KEYWORD1
 KeypadEvent	KEYWORD1
-KeypadSize	KEYWORD1
-listener	KEYWORD1
-KeyState	KEYWORD1
 
-###########################################
-# Methods and Functions (KEYWORD2)
-###########################################
-
-makeKeymap	KEYWORD2
-pin_mode	KEYWORD2
-begin	KEYWORD2
-getKeys	KEYWORD2
-getKey	KEYWORD2
-getState	KEYWORD2
-isPressed	KEYWORD2
-setDebounceTime	KEYWORD2
-setHoldTime	KEYWORD2
-addEventListener	KEYWORD2
-findKeyInList	KEYWORD2
-waitForKey	KEYWORD2
-keyStateChanged	KEYWORD2
-numKeys	KEYWORD2
-
-###########################################
-# Constants (LITERAL1)
-###########################################
-
+# Keypad Library constants
 NO_KEY	LITERAL1
-OPEN	LITERAL1
-CLOSED	LITERAL1
-LIST_MAX	LITERAL1
-KEY_RELEASED	LITERAL1
-MAPSIZE	LITERAL1
 IDLE	LITERAL1
 PRESSED	LITERAL1
 HOLD	LITERAL1
 RELEASED	LITERAL1
 
+# Keypad Library methods & functions
+addEventListener	KEYWORD2
+bitMap	KEYWORD2
+findKeyInList	KEYWORD2
+getKey	KEYWORD2
+getKeys	KEYWORD2
+getState	KEYWORD2
+holdTimer	KEYWORD2
+isPressed	KEYWORD2
+keyStateChanged	KEYWORD2
+numKeys	KEYWORD2
+pin_mode	KEYWORD2
+pin_write	KEYWORD2
+pin_read	KEYWORD2
+setDebounceTime	KEYWORD2
+setHoldTime	KEYWORD2
+waitForKey	KEYWORD2
 
+# this is a macro that converts 2d arrays to pointers
+makeKeymap	KEYWORD2
+
+# List of objects created in the example sketches.
+kpd	KEYWORD3
+keypad	KEYWORD3
+kbrd	KEYWORD3
+keyboard	KEYWORD3

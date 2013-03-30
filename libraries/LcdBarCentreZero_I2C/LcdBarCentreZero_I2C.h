@@ -19,7 +19,13 @@
 #ifndef LcdBarCentreZero_I2C_h
 #define LcdBarCentreZero_I2C_h
 
+// Arduino versioning.
+#if defined(ARDUINO) && ARDUINO >= 100
+#include "Arduino.h"	// for digitalRead, digitalWrite, etc
+#else
 #include "WProgram.h"
+#endif
+
 #include <LcdBarCentreZero_I2C.h>
 #include <LiquidCrystal_I2C.h>
 

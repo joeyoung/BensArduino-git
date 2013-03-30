@@ -1,0 +1,158 @@
+ttMorse - text to morse code engine library for arduino
+
+ G. D. (Joe) Young <jyoung@islandnet.com>
+
+created: Feb 25, 2013 - design document
+
+revised: Mar  1/13 - initial implementation
+		 Mar 19/13 - after getting pwm version(s) working
+
+
+Features of prototype morse code generator morse2:
+ - code generator uses non-blocking timing based on millis( )
+ - code characters stored in single byte; ascii characters are mapped into
+   the array of code characters by an index = (ascii & 0x7f) - 0x20. This
+   results in about double the code character storage since there are no
+   upper and lower case morse.
+ - the generator is started by setting an array pointer to the start of a
+   string, a limit to the length of the string, a string index to 0, call
+   to setGetBit( ) to retrieve the first translated code character, and 
+   setting flag 'sending'.
+ - the morse2 prototype sends something every 30 seconds. It also fetches
+   a string from the console, and has a test to see if a console string is
+   ready and if so it sends the console string. If not ready, it sends a
+   test string.
+
+Library version interface:
+ - constructor to specify: pins for output (tone, level)
+						   tone freq
+						   code speed
+						   string to send (possibly only a default)
+ - access functions:
+	- msend( ) - starts the setup string being sent
+	  msend( char *str ) - specify and send string
+	- mbusy( ) - returns true when string is being sent
+	- msetStr( char *str ) - specify string to send (necessary?)
+	- mspeed( byte speed ) - change sending speed
+
+Examples:
+
+**simplest - send string continuously
+ char *tstStr = "this is a test";
+
+ // led (or level) output pin 13, tone out pin 12, 800Hz tone freq, 15 wpm
+ ttMorse ttm( 13, 12, 800, 15, tstStr );
+
+ setup( ) {
+ }
+
+ loop( ) {
+	ttm.msend( );  // sending happens  
+} 
+
+
+**console input sender:
+
+ char inputline[MAX_CHARS]; //buffer for console input
+
+  - gather input characters - say up to <NL>
+  - terminate inputline with <null> (if necessary to make valid string)
+
+  - if( !ttm.mbusy( ) ) ttm.msend( inputline );
+
+
+==========================================================================
+
+March 1/13 -- Implementation details
+
+* The console line sender turns out to be rather more complex than the
+  outline just above suggests (see example sketch ttcode.ino):
+  - to be non-blocking in loop, can't use Serial's readBytesUntil function
+  - to send text just once requires careful setting of a flag (mstart) 
+    based on the status returned from msend; the flag controls whether 
+    msend is called at the loop rate. This structure does the trick:
+
+    if( mstart ) {
+      if( ttm.msend( ) == false ) mstart = false;
+    }
+
+  - Then, if another line comes in from the console before the one being
+    sent in Morse is finished, it overwrites the being-sent characters,
+    causing the sending routine to lose it's mind. Example sketch
+    ttcode2.ino begins to address this 'problem' by implementing ping-
+    pong buffering so that one line can be sending while a second one is
+    getting input characters. This still doesn't accomplish full type-ahead
+    capability since the same overwrite problem can occur if more than one
+    line ahead of sending is entered.
+
+* Handling of spaces turned out to be somewhat awkward. The implementation
+  at this date has about three parts:
+  - leading spaces are handled in setup on first call to msend
+  - middle and trailing spaces are handled in msend( ) following a 
+    sendable character
+  - a line of only spaces is also handled in setup on first call to msend,
+    but by 'simulating' a sending character with the output off, bypassing
+    the msend altogether.
+  It all works cleanly, but perhaps a different strategy that involved
+  sending the spaces one at a time from within msend might be neater.
+
+ 
+==========================================================================
+
+March 19/13 - after getting pwm tone generator working with ttMorse
+
+* A number of versions of tone generator library versions were constructed
+  and tested because it was found that the 'plain' tone generator dds
+  worked fine, but when the tone generator ISR was modified to include
+  control of rise and fall time, ttMorse stopped working. It was assumed
+  that the fault was something to do with the tone generator. It turned out
+  to be a problem with ttMorse's test for the end of an element--the test
+  needed to be conditioned on endElt. Once this change was made, ALL of the
+  tone generators implemented (see ttMorsePWM.txt for details) worked. It
+  turns out that the (nearly) original implementation is best for tone
+  quality (faster sample rate).
+
+* To accommodate the tone generator's overriding ttMorse's simple, arduino
+  tone( ) function, ttMorse added virtual functions toneOn( ) and
+  toneOff( ), which when not overridden simply call tone( ).
+
+* Then, by way of testing certain timing interaction possibilities with
+  the arduino millis( ) function, provision is made in ttMorse to override
+  the timing functions (using millis( )) with timers using the PWM timer2
+  overflow interrupt to control all timing. Accordingly, virtual functions
+  onTimer( ), offTimer( ), initTimers( ) were added.
+
+* After finding the 'real' fault with the pwm tone generation, several new
+  features have been added to the ttMorse (and ttMorsePWM) library:
+
+    - The polarity of the logic level output can be either high<-->tone on,
+      or low<-->tone on, by choosing the sign of the "ledpin" parameter in
+      the constructor. Positive value of the pin means a HIGH level
+      corresponds to the tone on (or morse element marking). A negative pin
+      value means that a LOW level corresponds to the tone on.
+
+    - The generator now handles prosign generation. If the text input
+      string has an asterisk ( * ), then the following letter codes up to
+      a following * are sent without letter spaces. So, for example to make
+      the 'end of transmission' prosign ._._. the text is written *ar*. Or,
+      equivalently, you could write *etete*. Thus, the "standard" notation
+      for prosigns along with the variations one sees can be sent. Think of
+      the *xx* as if the xx had an overline (the usual text display of any
+      prosign).
+
+      The prosign generation is terminated at the end of a line, even if 
+      the following asterisk is missing, allowing for a shortcut prosign at
+      line end: that's all folks *ar
+
+    - Not strictly part of the library, the examples of text from the
+      arduino serial monitor (or another terminal) ttcode2 have been 
+      revised to force a line to end with a space, so that a following line
+      can start right away, and the last word on the line ending and the
+      first word on the next line are spaced properly.
+
+    - The proper handling of (possibly multiple) spaces allows for sending
+      code with the "Farnsworth" method--fast characters, slow wpm--by adding
+      several spaces between each character.
+
+
+

@@ -1,0 +1,151 @@
+ttMorsePWM - text to Morse code generator with dds/pwm tone gerator
+
+created: March 20, 2013  G. D. Young <jyoung@islandnet.com>
+
+revised:
+
+This document supplements the description in ttmDesign.txt of the base
+library ttMorse, which intends primarily to be simply a text-to-Morse
+code generator. Since ttMorsePWM cannot stand alone, the description
+in ttmDesign.txt is included with this document.
+
+ttMorsePWM is in the form of an arduino library that extends the ttMorse
+text-to-MorseCode library by providing a more pleasant tone output.
+
+The tone is a sinusoid, with controlled rise and fall times. The tone is
+synthesised by using the arduino timer2 in fast pwm mode for the analog
+output, for driving the dds tone generation, and for generating all the 
+timing of the ttMorse functions.
+
+While ttMorsePWM is in the form of a library module, it cannot be
+multiply-constructed to have several copies of itself because there is
+only one timer2 in the arduino and it cannot be shared among more than
+one object. (ttMorse alone, however, CAN have multiple objects running
+simultaneously--see the ttMorse examples.)
+
+Both ttMorse and ttMorsePWM have been designed to run with non-blocking
+timing of all functions. Consequently, there can be other (non-blocking)
+processes also running at the same time. For instance, the examples show
+a text input from the serial monitor (or other terminal) gathering keyboard
+input while previous input is being simultaneously sent in Morse code, a
+rudimentary keyboard-to-Morse generator. Other possibilities (not yet
+implemented) might be Morse output from a piece of test equipment, a text
+file reader with Morse output, and so on. The Morse output can be used
+(almost) as simply as the Serial library.
+
+The folders ttMorse and ttMorsePWM are placed in your 'libraries' folder
+within the 'sketchbook' folder. To use the ttMorsePWM library in a sketch
+requires adding the #include lines:
+
+#include <ttMorse.h>
+#include <sinTab.h>
+#include <ttMorse_PWM.h>
+
+Then, use the constructor:
+
+ttMorse_PWM ttm( lvlpin, tonepin, tonefreq, codespeed, string, risetime );
+
+where:
+ lvlpin - char - the pin number for the Morse code level output; can be
+                 negative, in which case the output logic is inverted (low
+                 means code element (and tone) is ON)
+ tonepin - byte - the pin number the tone comes from -- 11, or 3 are only
+                  valid possibilities for ttMorsePWM using timer2. Other
+                  pin numbers or the literal NONE cause no tone produced.
+ tonefreq - word - frequency of output tone in Hz; typically 700..1500
+ codespeed - byte - (approx) speed in words per minute; typically 5..40 wpm
+ string - char * - string pointer to text to be sent
+ risetime - byte - (approx) risetime in msec for tone pulses of the Morse
+                   elements (dots and dashes); typically 3..10 msec
+
+Note that ttMorsPWM constructor is nearly the same as that for ttMorse, 
+adding only the one (risetime) parameter. In fact, most of the object 
+construction is handled by ttMorse.
+
+
+setup( ) needs to have the line:
+
+  ttm.setTimInt( );		//starts timer2 interrupts
+
+Then, the loop( ) can use the timing functions and Morse code generation
+functions. A complete list of the functions available:
+
+ //tone synthesis functions
+	void toneOn( );   // turns tone steadily on
+	void toneOff( );  // turns tone off
+
+	void setFreq( unsigned int freq );  // set new tone frequency
+	void setRise( byte rtmsec );        // set new risetime
+
+ //timing using timer2 overflow interrupt
+	bool onTimer( );
+	bool offTimer( );
+	unsigned long initTimers( );
+
+The timing functions are replacements for the usual non-blocking timing of
+things using the arduino's millis( ) function. So, where you would 
+ordinarily have used something like:
+
+  unsigned long timer = millis( ) + intvl;     // grab current value of millis( ),
+                                               // add time to wait.
+     .
+     .
+     .
+  if( timer < millis( ) ) {
+    timer += intvl;              // reset for next wait time
+    // do something time-synchronized
+  }
+
+The timer2 functions might be used instead:
+
+  ttm.elementStart = ttm.initTimers( ) + ontime;
+  ttm.toneOn( );
+    .
+    .
+    .
+  if( ttm.onTimer( ) ) {
+    ttm.toneOff( );
+  }
+
+That is, the onTimer boolean returns the comparison 
+   elementStart < timer2_msec
+
+These functions are used to override the ttMorse timing functions for
+generating the Morse code and are probably not normally useful within
+a program that simply wants to output good-sounding Morse code. But they
+are public functions and might be handy for some timing of tone 
+generation when Morse is NOT happening. The sketch testPWMtiming2, many
+versions of which were used in the development of ttMorsePWM to test the
+timing without ttMorse, provides an illustrative example in the function
+iamb( ).
+
+The timing using the timer2 interrupt is not quite exact; timer2 overflow
+occurs at the rate of 16MHz / 256 = 62500 overflows/sec. The timer2_msec
+count is generated in the interrupt service routine by counting down from
+62 at each interrupt which gives an increment every 62/62500 = .992 msec
+rather than 1 msec as would be obtained from millis( ).
+
+
+Implementation Details
+----------------------
+
+The version of ttMorsePWM at March 20/13 is actually more like the first
+implementation near the beginning of March than any of the subsequent
+variations attempted to reduce the computation time in the ISR. That is,
+the sine waveform generator uses a 32-bit phase accumulator (instead of
+a reduced-precision version) operating at the full 62500 sample/sec rate
+of the timer2 fast pwm mode (instead of an 8kHz version), and includes
+controlled rise/fall times (instead of no rise/fall control). The 
+inclusion of all timing functions run by timer2 was also an attempt to
+reduce overhead that's probably not necessary, but is kept. This version
+uses about half of the processor time as determined fairly crudely by the
+'loops per second' instrumentation at the top of the loop in the 
+mtoncepwm example sketch. Some of the other versions of the tone generator
+definitely use less processor time, but the tone quality suffers compared
+with this version. Since the main point of this exercise was to generate
+a better-quality audio output than available from the included arduino
+tone( ) function, the compute-penalty was deemed acceptable.
+
+
+
+

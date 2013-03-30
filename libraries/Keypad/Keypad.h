@@ -1,15 +1,15 @@
 /*
 ||
 || @file Keypad.h
-|| @version 2.0
+|| @version 3.1
 || @author Mark Stanley, Alexander Brevig
 || @contact mstanley@technologist.com, alexanderbrevig@gmail.com
 ||
 || @description
 || | This library provides a simple interface for using matrix
-|| | keypads. It supports the use of multiple keypads with the
-|| | same or different sets of keys.  It also supports user
-|| | selectable pins and definable keymaps.
+|| | keypads. It supports multiple keypresses while maintaining
+|| | backwards compatibility with the old single key library.
+|| | It also supports user selectable pins and definable keymaps.
 || #
 ||
 || @license
@@ -42,15 +42,23 @@
 #include "WProgram.h"
 #endif
 
-// See http://code.google.com/p/arduino/issues/detail?id=246
-#if defined(ARDUINO) && ARDUINO < 101
-#define INPUT_PULLUP INPUT
+// bperrybap - Thanks for a well reasoned argument and the following macro(s).
+// See http://arduino.cc/forum/index.php/topic,142041.msg1069480.html#msg1069480
+#ifndef INPUT_PULLUP
+#warning "Using  pinMode() INPUT_PULLUP AVR emulation"
+#define INPUT_PULLUP 0x2
+#define pinMode(_pin, _mode) _mypinMode(_pin, _mode)
+#define _mypinMode(_pin, _mode)  \
+ do {                            \
+   pinMode(_pin, INPUT);         \
+   if(_mode == INPUT_PULLUP)     \
+     digitalWrite(_pin, 1);      \
+ }while(0)
 #endif
+
 
 #define OPEN LOW
 #define CLOSED HIGH
-
-#define LIST_MAX 10		// Max number of keys on the active list.
 
 typedef char KeypadEvent;
 typedef unsigned int uint;
@@ -63,8 +71,8 @@ typedef struct {
     byte columns;
 } KeypadSize;
 
-#define KEY_RELEASED NO_KEY
-#define MAPSIZE 10
+#define LIST_MAX 10		// Max number of keys on the active list.
+#define MAPSIZE 10		// MAPSIZE is the number of rows (times 16 columns)
 #define makeKeymap(x) ((char*)x)
 
 
@@ -78,19 +86,20 @@ public:
 	virtual void pin_write(byte pinNum, boolean level) { digitalWrite(pinNum, level); }
 	virtual int  pin_read(byte pinNum) { return digitalRead(pinNum); }
 
-	uint bitMap[MAPSIZE];	// 10 row x 16 column array of bits.
+	uint bitMap[MAPSIZE];	// 10 row x 16 column array of bits. Except Due which has 32 columns.
 	Key key[LIST_MAX];
 	unsigned long holdTimer;
 
 	char getKey();
-	void getKeys();
+	bool getKeys();
 	KeyState getState();
 	void begin(char *userKeymap);
 	bool isPressed(char keyChar);
 	void setDebounceTime(uint);
 	void setHoldTime(uint);
 	void addEventListener(void (*listener)(char));
-	int findKeyInList(char keyChar);
+	int findInList(char keyChar);
+	int findInList(int keyCode);
 	char waitForKey();
 	bool keyStateChanged();
 	byte numKeys();
@@ -104,11 +113,10 @@ private:
 	uint debounceTime;
 	uint holdTime;
 
-	bool scanKeys();
-	void updateList();
-	void setKeyState(byte n, boolean button);
+	void scanKeys();
+	bool updateList();
+	void nextKeyState(byte n, boolean button);
 	void transitionTo(byte n, KeyState nextState);
-	void initializePins();
 	void (*keypadEventListener)(char);
 };
 
@@ -116,6 +124,11 @@ private:
 
 /*
 || @changelog
+|| | 3.1 2013-01-15 - Mark Stanley     : Fixed missing RELEASED & IDLE status when using a single key.
+|| | 3.0 2012-07-12 - Mark Stanley     : Made library multi-keypress by default. (Backwards compatible)
+|| | 3.0 2012-07-12 - Mark Stanley     : Modified pin functions to support Keypad_I2C
+|| | 3.0 2012-07-12 - Stanley & Young  : Removed static variables. Fix for multiple keypad objects.
+|| | 3.0 2012-07-12 - Mark Stanley     : Fixed bug that caused shorted pins when pressing multiple keys.
 || | 2.0 2011-12-29 - Mark Stanley     : Added waitForKey().
 || | 2.0 2011-12-23 - Mark Stanley     : Added the public function keyStateChanged().
 || | 2.0 2011-12-23 - Mark Stanley     : Added the private function scanKeys().

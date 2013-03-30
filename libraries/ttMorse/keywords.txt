@@ -1,0 +1,38 @@
+###########################################
+# Syntax Coloring Map For Keypad_MCP
+###########################################
+
+###########################################
+# Constants in library
+###########################################
+
+NONE	LITERAL1
+
+###########################################
+# Datatypes (KEYWORD1)
+###########################################
+
+ttMorse	KEYWORD1
+
+###########################################
+# Methods and Functions (KEYWORD2)
+###########################################
+
+msend	KEYWORD2
+mbusy	KEYWORD2
+mspeed	KEYWORD2
+msetStr	KEYWORD2
+toneOn	KEYWORD2
+toneOff	KEYWORD2
+onTimer	KEYWORD2
+offTimer	KEYWORD2
+initTimers	KEYWORD2
+
+
+###########################################
+# Objects created in the example sketches.
+###########################################
+
+ttm	KEYWORD3
+ttm2	KEYWORD3
+

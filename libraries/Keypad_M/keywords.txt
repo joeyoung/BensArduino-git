@@ -1,0 +1,24 @@
+###########################################
+# Syntax Coloring Map For Keypad_MAX
+###########################################
+
+###########################################
+# Datatypes (KEYWORD1)
+###########################################
+
+Keypad_M	KEYWORD1
+
+###########################################
+# Methods and Functions (KEYWORD2)
+###########################################
+
+port_write	KEYWORD2
+begin	KEYWORD2
+getKeys	KEYWORD2
+
+# List of objects created in the example sketches.
+kpd	KEYWORD3
+kpdR	KEYWORD3
+kpdUR	KEYWORD3
+keypad	KEYWORD3
+
